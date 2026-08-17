@@ -367,6 +367,13 @@ function dataDe(w,d){
 
 /* ---------------------------------------------------------------- cálculo */
 function ciclo(w){ return w<=2 ? 0 : (w-3)%4; }
+
+/* identificador estável, derivado do nome. Sobrevive a reordenar, inserir e remover
+   exercícios. Só muda se o nome do exercício mudar. */
+function sid(e){
+  return e.n.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+          .replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"");
+}
 function arred(x, passo){ passo = passo || 1.25; return Math.round((x/passo))*passo; }
 function limpa(x){ return Math.round(x*100)/100; }
 
@@ -490,7 +497,8 @@ function renderGym(){
 
   var corpo = D.ex.map(function(e, i){
     var p = prescricao(e, week);
-    var reg = dados[i] || [];
+    var id = sid(e);
+    var reg = dados[id] || [];
     total += p.sets;
     var ok = 0;
     for(var k=0;k<p.sets;k++){ if(reg[k] && reg[k].ok) ok++; }
@@ -513,11 +521,11 @@ function renderGym(){
     for(var s=0; s<p.sets; s++){
       var r = reg[s] || {};
       sets += '<div class="set"><span class="set-n">'+(s+1)+'</span>'+
-        '<div class="fld"><input type="number" inputmode="decimal" data-e="'+i+'" data-s="'+s+'" data-f="kg" '+
+        '<div class="fld"><input type="number" inputmode="decimal" data-e="'+id+'" data-s="'+s+'" data-f="kg" '+
           'value="'+(r.kg!=null?r.kg:(p.kg||""))+'"><em>kg</em></div>'+
-        '<div class="fld"><input type="number" inputmode="numeric" data-e="'+i+'" data-s="'+s+'" data-f="rep" '+
+        '<div class="fld"><input type="number" inputmode="numeric" data-e="'+id+'" data-s="'+s+'" data-f="rep" '+
           'value="'+(r.rep!=null?r.rep:(typeof p.reps==="number"?p.reps:""))+'"><em>rep</em></div>'+
-        '<button class="chk'+(r.ok?" on":"")+'" data-e="'+i+'" data-s="'+s+'">✓</button></div>';
+        '<button class="chk'+(r.ok?" on":"")+'" data-e="'+id+'" data-s="'+s+'">✓</button></div>';
     }
 
     var pres = p.sets+" x "+p.reps+"  ·  RPE "+p.rpe;
@@ -546,7 +554,7 @@ function renderGym(){
   ligaRun(week, day);
   Array.prototype.forEach.call(view.querySelectorAll(".chk"), function(b){
     b.onclick = function(){
-      grava(+b.dataset.e, +b.dataset.s, "ok", !(b.classList.contains("on")));
+      grava(b.dataset.e, +b.dataset.s, "ok", !(b.classList.contains("on")));
       b.classList.toggle("on");
       atualizaBarra();
       inicia(120);
@@ -554,7 +562,7 @@ function renderGym(){
   });
   Array.prototype.forEach.call(view.querySelectorAll(".set input"), function(inp){
     inp.onchange = function(){
-      grava(+inp.dataset.e, +inp.dataset.s, inp.dataset.f, inp.value===""?null:+inp.value);
+      grava(inp.dataset.e, +inp.dataset.s, inp.dataset.f, inp.value===""?null:+inp.value);
     };
   });
 }
@@ -563,7 +571,7 @@ function atualizaBarra(){
   var D = DIAS[day], dados = log[chaveLog()] || {}, feitas=0, total=0;
   D.ex.forEach(function(e,i){
     var p = prescricao(e, week); total += p.sets;
-    var reg = dados[i] || [];
+    var reg = dados[sid(e)] || [];
     for(var k=0;k<p.sets;k++) if(reg[k] && reg[k].ok) feitas++;
     var card = view.querySelector('.ex[data-ex="'+i+'"]');
     if(card){
@@ -643,7 +651,7 @@ function statsMusc(){
       var dados = log["gym:w"+w+":"+d] || {};
       DIAS[d].ex.forEach(function(e, i){
         var p = prescricao(e, w); prev += p.sets;
-        var reg = dados[i] || [];
+        var reg = dados[sid(e)] || [];
         for(var k=0; k<p.sets; k++){
           var r = reg[k];
           if(r && r.ok){
@@ -893,11 +901,39 @@ sheet.onclick = function(e){ if(e.target === sheet) sheet.classList.remove("on")
 document.getElementById("wm").onclick = function(){ if(week>1){ week--; render(); } };
 document.getElementById("wp").onclick = function(){ if(week<16){ week++; render(); } };
 
+/* ---------------------------------------------------------------- migração
+   Versões anteriores gravavam a série sob o índice numérico do exercício.
+   A partir daqui a chave é o slug estável sid(e). Esta função converte as
+   chaves numéricas uma única vez, usando a ordem atual dos exercícios do dia.
+   Idempotente: depois de rodar não sobra chave numérica para converter. */
+function migraSlugs(){
+  var mudou = false;
+  Object.keys(log).forEach(function(k){
+    var m = /^gym:w\d+:(seg|ter|qui|sex|sab)$/.exec(k);
+    if(!m) return;
+    var lista = DIAS[m[1]] ? DIAS[m[1]].ex : null;
+    if(!lista) return;
+    var dados = log[k];
+    Object.keys(dados).forEach(function(id){
+      if(!/^\d+$/.test(id)) return;
+      var e = lista[+id];
+      if(!e) return;
+      var novo = sid(e);
+      if(novo === id) return;
+      if(!dados[novo]) dados[novo] = dados[id];
+      delete dados[id];
+      mudou = true;
+    });
+  });
+  if(mudou) S.store("luiz:gym:v1", log);
+}
+
 /* ---------------------------------------------------------------- início */
 (function(){
   cfg = Object.assign(cfg, S.load("luiz:cfg:v1", {}));
   log = S.load("luiz:gym:v1", {});
   run = S.load("luiz:run:v1", {});
+  migraSlugs();
   var hoje = new Date();
   var diff = Math.floor((hoje - DATA0)/86400000);
   if(diff >= 0 && diff < 112){
