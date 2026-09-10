@@ -15,7 +15,7 @@
 <style>
   html,body{margin:0;padding:0;background:#16181c;overscroll-behavior-y:none;
        -webkit-text-size-adjust:100%}
-  button,.day,.chk,.ex-h{-webkit-user-select:none;user-select:none;touch-action:manipulation}
+  button,.day,.chk,.ex-h,.tb,.bk{-webkit-user-select:none;user-select:none;touch-action:manipulation}
 
   :root{
     --ink:#16181c; --surf:#1e2126; --surf2:#252932; --line:#333a44;
@@ -67,8 +67,19 @@
         padding:10px 12px;margin:0 0 16px;font-size:13.5px;color:#d3d8de}
   .note b{color:var(--p15)}
 
-  .prog{height:3px;background:var(--surf2);border-radius:2px;overflow:hidden;margin:0 0 18px}
-  .prog i{display:block;height:100%;background:var(--ok);transition:width .3s}
+  .prog{height:3px;background:var(--surf2);overflow:hidden}
+  .prog i{display:block;height:100%;width:0;background:var(--ok);transition:width .3s}
+  /* O toque haptico do iPhone so sai quando o dedo acerta um switch de
+     verdade: o iOS 26.5 bloqueou haptico disparado por script. Entao o
+     switch fica por cima do botao, invisivel, e o clique dele borbulha
+     para o botao normalmente. clip-path, e nao overflow, porque overflow
+     recorta a pintura mas nao a area de toque. */
+  .chk .hapt,.bk .hapt,.tb .hapt{position:absolute;inset:0;width:100%;height:100%;
+       margin:0;padding:0;border:0;background:none;opacity:0;
+       touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+  .chk .hapt{clip-path:inset(0 round 7px)}
+  .bk .hapt{clip-path:inset(0 round 9px)}
+  .tb .hapt{clip-path:inset(0 round 8px)}
 
   .ex{background:var(--surf);border:1px solid var(--line);border-radius:11px;
       margin:0 0 10px;overflow:hidden}
@@ -105,7 +116,8 @@
   .fld em{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-family:var(--mono);
           font-size:9.5px;color:var(--dim);font-style:normal;pointer-events:none}
   .chk{width:38px;height:38px;flex:0 0 auto;border-radius:7px;background:var(--surf2);
-       border:1px solid var(--line);display:grid;place-items:center;font-size:15px;color:var(--dim)}
+       border:1px solid var(--line);display:grid;place-items:center;font-size:15px;color:var(--dim);
+       position:relative;cursor:pointer}
   .chk.on{background:var(--ok);border-color:var(--ok);color:#fff}
 
   .cue{margin:14px 0 0;font-size:13.5px;color:#c3cad2;border-top:1px dashed var(--line);padding-top:11px}
@@ -128,12 +140,26 @@
          bottom:calc(16px + env(safe-area-inset-bottom));z-index:50;
          display:flex;align-items:center;gap:2px;background:var(--surf2);border:1px solid var(--line);
          border-radius:12px;padding:6px;box-shadow:0 8px 26px rgba(0,0,0,.55)}
-  .timer button{font-family:var(--mono);font-size:12px;letter-spacing:.04em;color:var(--mut);
-                padding:9px 12px;border-radius:8px}
-  .timer button:active{background:var(--surf)}
+  /* span, e nao button, porque o overlay .hapt e um controle de formulario
+     e nao pode ser filho de <button>. E o overlay que faz o iPhone vibrar. */
+  .timer .tb{font-family:var(--mono);font-size:12px;letter-spacing:.04em;color:var(--mut);
+             padding:9px 12px;border-radius:8px;position:relative;cursor:pointer;
+             text-align:center}
+  .timer .tb:active{background:var(--surf)}
   .timer .now{font-family:var(--mono);font-size:20px;font-weight:700;min-width:74px;text-align:center;
               letter-spacing:-.02em;padding:0 6px}
   .timer .now.ring{color:var(--p10)}
+  /* Fim do descanso: o iPhone nao vibra sem dedo na tela, entao o aviso
+     visual carrega parte do recado junto com o apito. */
+  @keyframes tflash{
+    0%,100%{background:var(--surf2);border-color:var(--line)}
+    50%{background:var(--ok);border-color:var(--ok)}
+  }
+  .timer.flash{animation:tflash .5s ease-in-out 4}
+  .timer.flash .now{color:#fff}
+  @media (prefers-reduced-motion:reduce){
+    .timer.flash{animation:none;background:var(--ok);border-color:var(--ok)}
+  }
 
   .sheet{position:fixed;inset:0;z-index:60;background:rgba(10,11,13,.72);display:none;
          align-items:flex-end;backdrop-filter:blur(3px)}
@@ -204,7 +230,8 @@
 
   .bk-g{display:flex;gap:8px;margin-top:16px}
   .bk{flex:1;padding:12px 8px;border-radius:9px;background:var(--surf2);border:1px solid var(--line);
-      font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;color:var(--mut)}
+      font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;color:var(--mut);
+      position:relative;text-align:center;cursor:pointer}
   .bk:active{background:#2f3540}
   .howto{margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
   .howto b{font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--dim);
@@ -224,15 +251,16 @@
       <button class="gear" id="cfg">☰</button>
     </div>
     <div class="days" id="days"></div>
+    <div class="prog" id="progDia" hidden><i></i></div>
   </div>
   <div class="wrap" id="view"></div>
 
   <div class="timer">
-    <button id="t60">60s</button>
-    <button id="t120">2min</button>
+    <span class="tb" id="t60" role="button">60s<input class="hapt" type="checkbox" switch aria-hidden="true" tabindex="-1"></span>
+    <span class="tb" id="t120" role="button">2min<input class="hapt" type="checkbox" switch aria-hidden="true" tabindex="-1"></span>
     <div class="now" id="tnow">0:00</div>
-    <button id="t180">3min</button>
-    <button id="tstop">zerar</button>
+    <span class="tb" id="t180" role="button">3min<input class="hapt" type="checkbox" switch aria-hidden="true" tabindex="-1"></span>
+    <span class="tb" id="tstop" role="button">zerar<input class="hapt" type="checkbox" switch aria-hidden="true" tabindex="-1"></span>
   </div>
 
   <div class="sheet" id="sheet"><div class="sheet-in" id="sheetIn"></div></div>
@@ -411,6 +439,16 @@ var esc = function(s){ return String(s).replace(/[&<>"]/g, function(c){
 
 function chaveLog(){ return "gym:w"+week+":"+day; }
 
+/* Overlay invisivel que faz o iPhone vibrar quando o dedo toca o botao. */
+var SW = '<input class="hapt" type="checkbox" switch aria-hidden="true" tabindex="-1">';
+
+/* A barra de progresso do dia mora dentro do cabecalho fixo, fora de #view,
+   por isso sobrevive ao innerHTML de cada render e acompanha a rolagem. */
+function pintaProg(pct){
+  var i = document.querySelector("#progDia i");
+  if(i) i.style.width = pct+"%";
+}
+
 function render(){
   document.getElementById("wl").textContent = "SEMANA "+week;
   var f = FATOR[week-1];
@@ -429,6 +467,8 @@ function render(){
   Array.prototype.forEach.call(document.querySelectorAll(".day"), function(b){
     b.onclick = function(){ day = b.dataset.d; render(); window.scrollTo(0,0); };
   });
+
+  document.getElementById("progDia").hidden = !DIAS[day];
 
   if(day === "prog") renderProg();
   else if(DIAS[day]) renderGym();
@@ -525,7 +565,7 @@ function renderGym(){
           'value="'+(r.kg!=null?r.kg:(p.kg||""))+'"><em>kg</em></div>'+
         '<div class="fld"><input type="number" inputmode="numeric" data-e="'+id+'" data-s="'+s+'" data-f="rep" '+
           'value="'+(r.rep!=null?r.rep:(typeof p.reps==="number"?p.reps:""))+'"><em>rep</em></div>'+
-        '<button class="chk'+(r.ok?" on":"")+'" data-e="'+id+'" data-s="'+s+'">✓</button></div>';
+        '<span class="chk'+(r.ok?" on":"")+'" role="button" data-e="'+id+'" data-s="'+s+'">✓'+SW+'</span></div>';
     }
 
     var pres = p.sets+" x "+p.reps+"  ·  RPE "+p.rpe;
@@ -545,8 +585,9 @@ function renderGym(){
   }).join("");
 
   var pct = total ? Math.round(feitas/total*100) : 0;
-  view.innerHTML = html + '<div class="prog"><i style="width:'+pct+'%"></i></div>' + corpo +
+  view.innerHTML = html + corpo +
     '<p class="warn">'+feitas+' de '+total+' séries concluídas. Fonte das cargas e percentuais: sua ficha full-body do Jeff Nippard. Os pesos vêm preenchidos como sugestão e podem ser editados em cada série.</p>';
+  pintaProg(pct);
 
   Array.prototype.forEach.call(view.querySelectorAll(".ex-h"), function(b){
     b.onclick = function(){ b.parentNode.classList.toggle("open"); };
@@ -554,9 +595,15 @@ function renderGym(){
   ligaRun(week, day);
   Array.prototype.forEach.call(view.querySelectorAll(".chk"), function(b){
     b.onclick = function(){
-      grava(b.dataset.e, +b.dataset.s, "ok", !(b.classList.contains("on")));
+      var card = b.closest(".ex");
+      var antes = !!card && card.classList.contains("done");
+      var marcando = !b.classList.contains("on");
+      grava(b.dataset.e, +b.dataset.s, "ok", marcando);
       b.classList.toggle("on");
       atualizaBarra();
+      /* dois toques quando a ultima serie fecha o exercicio, um toque no resto */
+      if(marcando && !antes && card && card.classList.contains("done")) toque([26,70,26]);
+      else toque(18);
       inicia(120);
     };
   });
@@ -580,8 +627,7 @@ function atualizaBarra(){
       card.querySelector(".tick").classList.toggle("on", ok===p.sets);
     }
   });
-  var b = view.querySelector(".prog i");
-  if(b) b.style.width = (total?Math.round(feitas/total*100):0)+"%";
+  pintaProg(total ? Math.round(feitas/total*100) : 0);
   var w = view.querySelector(".warn");
   if(w) w.textContent = feitas+" de "+total+" séries concluídas. Fonte das cargas e percentuais: sua ficha full-body do Jeff Nippard. Os pesos vêm preenchidos como sugestão e podem ser editados em cada série.";
 }
@@ -790,8 +836,71 @@ function renderProg(){
   view.innerHTML = h;
 }
 
+/* ---------------------------------------------------------------- háptico
+   São dois caminhos independentes, e no iPhone o que vale é o primeiro.
+
+   1. O overlay .hapt é um <input type="checkbox" switch> invisível por cima
+      do botão (Safari 17.4+). Quem dispara o toque é o dedo acertando o
+      controle, não o código: o iOS 26.5 bloqueou háptico programado, então
+      .click() por script não serve mais. Duas consequências que valem
+      lembrar antes de mexer aqui: no iPhone todo toque sai igual, sem como
+      variar intensidade, e o fim do descanso não vibra, porque ali não há
+      dedo nenhum na tela.
+
+   2. Onde navigator.vibrate existe de verdade (Android), dá para variar a
+      duração, e é o que toque() faz. No iPhone ela não faz nada, e tudo
+      bem, porque o overlay já resolveu. Falha em silêncio, igual ao bip. */
+function toque(padrao){
+  try{ if(navigator.vibrate) navigator.vibrate(padrao); }catch(e){}
+}
+
+/* Linha de diagnóstico do Ajustes, para saber em que aparelho estamos. */
+function ambiente(){
+  var m = /OS ([0-9]+)[._]([0-9]+)/.exec(navigator.userAgent);
+  return "iOS " + (m ? m[1]+"."+m[2] : "?") +
+         " · vibrate " + (navigator.vibrate ? "existe" : "ausente") +
+         " · wakeLock " + (navigator.wakeLock ? "ok" : "indisponível, use https");
+}
+
 /* ---------------------------------------------------------------- timer */
 var fim = 0, tick = null, ac = null, avisado = true;
+var elTimer = document.querySelector(".timer");
+
+/* ---------------------------------------------------------------- tela acesa
+   Quando a tela apaga, o iOS suspende os timers da página em poucos
+   segundos, o setInterval do cronômetro para e o apito nunca chega. O Wake
+   Lock segura a tela acesa só enquanto o descanso corre, e solta no fim.
+
+   Exige HTTPS: em http:// simples navigator.wakeLock nem existe, então em
+   teste na rede local isto silenciosamente não faz nada. Também é liberado
+   pelo próprio iOS quando a aba deixa de ficar visível, por isso é pedido
+   de novo no visibilitychange enquanto ainda houver descanso correndo. */
+var trava = null;
+
+function seguraTela(){
+  if(!navigator.wakeLock || trava) return;
+  try{
+    navigator.wakeLock.request("screen").then(function(t){
+      trava = t;
+      t.addEventListener("release", function(){ trava = null; });
+    }, function(){});
+  }catch(e){}
+}
+
+function soltaTela(){
+  if(!trava) return;
+  try{ trava.release(); }catch(e){}
+  trava = null;
+}
+
+/* Pisca o cronômetro. É o único aviso que sobra quando o telefone está no
+   silencioso E longe do ouvido, já que háptico sem dedo na tela é bloqueado. */
+function pisca(){
+  if(!elTimer) return;
+  elTimer.classList.remove("flash");
+  void elTimer.offsetWidth;   /* reinicia a animação */
+  elTimer.classList.add("flash");
+}
 
 function bip(){
   try{
@@ -807,7 +916,9 @@ function bip(){
       o.connect(g); g.connect(ac.destination); o.start(t); o.stop(t+0.18);
     });
   }catch(e){}
-  if(navigator.vibrate) navigator.vibrate([220,120,220]);
+  toque([220,120,220]);
+  pisca();
+  soltaTela();
 }
 
 function restantes(){ return fim ? Math.max(0, Math.ceil((fim - Date.now())/1000)) : 0; }
@@ -823,19 +934,33 @@ function mostra(){
 function inicia(seg){
   try{ if(!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
        if(ac.state === "suspended") ac.resume(); }catch(e){}
+  seguraTela();
+  if(elTimer) elTimer.classList.remove("flash");
   fim = Date.now() + seg*1000;
   avisado = false;
   if(!tick) tick = setInterval(mostra, 250);
   mostra();
 }
 
-document.addEventListener("visibilitychange", function(){ if(!document.hidden) mostra(); });
+document.addEventListener("visibilitychange", function(){
+  if(document.hidden) return;
+  mostra();
+  if(restantes() > 0) seguraTela();   /* o iOS solta a trava ao esconder a aba */
+});
 window.addEventListener("focus", mostra);
 
-document.getElementById("t60").onclick = function(){ inicia(60); };
-document.getElementById("t120").onclick = function(){ inicia(120); };
-document.getElementById("t180").onclick = function(){ inicia(180); };
-document.getElementById("tstop").onclick = function(){ fim = 0; avisado = true; mostra(); };
+/* toque() cobre o Android. No iPhone quem vibra e o overlay .hapt dentro de
+   cada botao, acionado pelo proprio dedo. */
+document.getElementById("t60").onclick = function(){ toque(18); inicia(60); };
+document.getElementById("t120").onclick = function(){ toque(18); inicia(120); };
+document.getElementById("t180").onclick = function(){ toque(18); inicia(180); };
+document.getElementById("tstop").onclick = function(){
+  toque(18);
+  fim = 0; avisado = true;
+  if(elTimer) elTimer.classList.remove("flash");
+  soltaTela();
+  mostra();
+};
 
 /* ---------------------------------------------------------------- ajustes */
 var sheet = document.getElementById("sheet"), sheetIn = document.getElementById("sheetIn");
@@ -850,9 +975,12 @@ document.getElementById("cfg").onclick = function(){
     '<div class="bk-g">'+
       '<button class="bk" id="exp">EXPORTAR CÓPIA</button>'+
       '<button class="bk" id="imp">RESTAURAR CÓPIA</button></div>'+
+    '<div class="bk-g" style="margin-top:8px">'+
+      '<span class="bk" id="btHap" role="button"><span id="btHapT">TESTAR VIBRAÇÃO</span>'+SW+'</span></div>'+
+    '<p class="warn">Toque no botão acima. No iPhone o háptico vem do dedo acertando o controle escondido, nunca do código. Se não sentir nada, confira Ajustes, Sons e Resposta Tátil, Resposta Tátil do Sistema.<br>'+ambiente()+'</p>'+
     '<input type="file" id="impf" accept="application/json" style="display:none">'+
     '<div class="howto"><b>INSTALAR NO IPHONE</b><ol>'+
-      '<li>Abra este endereço no Safari.</li>'+
+      '<li>Abra este endereço no Safari, por https.</li>'+
       '<li>Toque no botão de compartilhar.</li>'+
       '<li>Escolha Adicionar à Tela de Início.</li>'+
       '<li>Ajustes, Tela e Brilho, Bloqueio Automático: 5 minutos.</li></ol></div>'+
@@ -862,6 +990,12 @@ document.getElementById("cfg").onclick = function(){
     inp.onchange = function(){ cfg[inp.dataset.c] = +inp.value || 0; S.store("luiz:cfg:v1", cfg); render(); };
   });
   document.getElementById("fechar").onclick = function(){ sheet.classList.remove("on"); };
+  document.getElementById("btHap").onclick = function(){
+    var bt = document.getElementById("btHapT");
+    toque([26,70,26]);
+    bt.textContent = "TOCOU AGORA";
+    setTimeout(function(){ bt.textContent = "TESTAR VIBRAÇÃO"; }, 1200);
+  };
   document.getElementById("exp").onclick = function(){
     var pacote = {versao:1, gerado:new Date().toISOString(), cfg:cfg, log:log, run:run};
     var a = document.createElement("a");
