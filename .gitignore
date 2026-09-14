@@ -1,0 +1,4 @@
+# certificado local do serve-https.py, nunca versionar
+.cert.pem
+.key.pem
+.openssl.cnf
