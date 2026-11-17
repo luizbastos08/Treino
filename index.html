@@ -311,10 +311,27 @@
       font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;color:var(--mut);
       position:relative;text-align:center;cursor:pointer}
   .bk:active{background:#2f3540}
-  .howto{margin-top:18px;padding-top:14px;border-top:1px solid var(--line)}
-  .howto b{font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--dim);
-           font-weight:400;display:block;margin-bottom:7px}
-  .howto ol{margin:0;padding-left:18px;font-size:13.5px;color:#c3cad2;line-height:1.65}
+  /* aviso de cópia e seção de dados do Ajustes */
+  .cp{background:var(--surf);border-left:3px solid var(--p20);border-radius:0 8px 8px 0;
+      padding:11px 12px;margin:0 0 16px}
+  .cp p{margin:0;font-size:13.5px;color:#d3d8de}
+  .cp b{color:var(--text)}
+  .cp .bk-g{margin-top:10px}
+  .bk.pri{background:var(--p20);border-color:var(--p20);color:#fff}
+  .bk.pri:active{background:#2a6fd6}
+  .sec{font-family:var(--mono);font-size:10px;letter-spacing:.12em;color:var(--dim);margin:24px 0 8px}
+  .dados{background:var(--surf2);border:1px solid var(--line);border-radius:9px;padding:11px 12px;
+         font-size:13.5px;color:#d3d8de;line-height:1.55}
+  .dados b{color:var(--text);font-weight:600}
+  .ok-msg,.err-msg{font-family:var(--mono);font-size:12px;margin:10px 0 0;letter-spacing:.02em}
+  .ok-msg{color:var(--p10)}
+  .err-msg{color:var(--p25)}
+  .ver{font-family:var(--mono);font-size:9.5px;letter-spacing:.1em;color:var(--dim);text-align:center;margin:12px 0 0}
+  /* #app button zera fundo, borda, cor e fonte de todo botão. Estes três
+     precisam do próprio visual de volta. */
+  #app .gear{background:var(--surf);border:1px solid var(--line)}
+  #app .close{background:var(--surf2);border:1px solid var(--line);font-family:var(--disp)}
+  #app .danger{color:var(--p25);font-family:var(--mono)}
 
 </style>
 </head>
@@ -978,6 +995,7 @@ function render(){
   if(day === "prog") renderProg();
   else if(DIAS[day]) renderGym();
   else renderRun();
+  avisoCopia();
 }
 
 /* ---------------------------------------------------------------- registro de corrida */
@@ -1013,7 +1031,7 @@ function ligaRun(w, d){
       if(!run[k]) run[k] = {};
       run[k][inp.dataset.r] = inp.value === "" ? null : +inp.value;
       S.store("luiz:run:v1", run);
-      sujo();
+      sujo(); mudou();
       render();
     };
   });
@@ -1260,7 +1278,7 @@ function celula(ei, si){
   if(!log[k][ei][si]) log[k][ei][si] = {};
   return log[k][ei][si];
 }
-function salvaLog(){ S.store("luiz:gym:v1", log); sujo(); }
+function salvaLog(){ S.store("luiz:gym:v1", log); sujo(); mudou(); }
 
 function renderRun(){
   var c = CORRIDA[week][day];
@@ -1710,32 +1728,182 @@ document.getElementById("tstop").onclick = function(){
   mostra();
 };
 
+/* ---------------------------------------------------------------- cópia de segurança
+   Os registros moram só no localStorage deste aparelho, e o app da Tela de
+   Início guarda os dados separados do Safari. A cópia é a proteção contra
+   reinstalar o atalho, trocar de aparelho e a limpeza do Safari, que apaga
+   dados de sites que ficam 7 dias sem ser abertos. O app da Tela de Início
+   não sofre essa limpeza. */
+var VERSAO = "2.1";
+var meta = {};          /* datas ISO: copia (última cópia), mudou (último registro), adiar (aviso adiado até) */
+var persistido = false;
+
+function salvaMeta(){ S.store("luiz:meta:v1", meta); }
+function mudou(){ meta.mudou = new Date().toISOString(); salvaMeta(); }
+function isoLocal(x){ return x.getFullYear()+"-"+pad(x.getMonth()+1)+"-"+pad(x.getDate()); }
+function quando(iso){
+  var x = new Date(iso), d = dias(x, new Date());
+  return d <= 0 ? "hoje" : d === 1 ? "ontem" : ddmm(x)+", há "+d+" dias";
+}
+function noApp(){
+  return window.navigator.standalone === true ||
+         !!(window.matchMedia && window.matchMedia("(display-mode: standalone)").matches);
+}
+function plural(n, um, varios){ return n+" "+(n === 1 ? um : varios); }
+
+/* dias de musculação com série marcada e corridas registradas, e o período */
+function resumoDados(){
+  var H = hist(), datas = {};
+  Object.keys(H.g).forEach(function(id){ H.g[id].forEach(function(s){ datas[s.t] = 1; }); });
+  var ts = Object.keys(datas).map(Number).concat(H.r.map(function(r){ return r.t; }));
+  return {treinos:Object.keys(datas).length, corridas:H.r.length,
+          ini:ts.length ? new Date(Math.min.apply(null, ts)) : null,
+          fim:ts.length ? new Date(Math.max.apply(null, ts)) : null};
+}
+function resumoTxt(R){
+  if(!R.treinos && !R.corridas) return "Nenhum treino registrado neste aparelho.";
+  return "Neste aparelho: <b>"+plural(R.treinos, "treino", "treinos")+" e "+plural(R.corridas, "corrida", "corridas")+
+         "</b>, de "+ddmm(R.ini)+" a "+ddmm(R.fim)+".";
+}
+
+/* O aviso aparece quando há registro sem cópia: nunca houve cópia, ou a
+   última tem mais de 7 dias e veio registro novo depois dela. */
+function copiaPendente(){
+  var R = resumoDados();
+  if(!R.treinos && !R.corridas) return false;
+  if(meta.adiar && Date.now() < Date.parse(meta.adiar)) return false;
+  if(!meta.copia) return true;
+  var c = Date.parse(meta.copia), m = meta.mudou ? Date.parse(meta.mudou) : 0;
+  return m > c && Date.now() - c > 7*864e5;
+}
+
+function exporta(depois){
+  var texto = JSON.stringify({versao:2, gerado:new Date().toISOString(), cfg:cfg, log:log, run:run});
+  var nome = "treino-"+isoLocal(new Date())+".json";
+  var feito = function(){
+    meta.copia = new Date().toISOString(); meta.adiar = null; salvaMeta();
+    if(depois) depois(true);
+  };
+  /* No celular, a folha de compartilhar do sistema oferece Salvar em Arquivos
+     e funciona também no app da Tela de Início. No computador, o arquivo baixa. */
+  try{
+    var celular = !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches);
+    var arq = new File([texto], nome, {type:"application/json"});
+    if(celular && navigator.canShare && navigator.canShare({files:[arq]})){
+      navigator.share({files:[arq], title:"Cópia do treino"}).then(feito, function(){ if(depois) depois(false); });
+      return;
+    }
+  }catch(e){}
+  var a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([texto], {type:"application/json"}));
+  a.download = nome;
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  feito();
+}
+
+function temOk(a){ return Array.isArray(a) && a.some(function(r){ return r && r.ok; }); }
+
+/* Junta a cópia com o que já está aqui. Em conflito, o que já está no app
+   vence, então restaurar nunca apaga um registro existente. */
+function junta(d){
+  if(d.log && typeof d.log === "object") Object.keys(d.log).forEach(function(k){
+    var de = d.log[k];
+    if(!de || typeof de !== "object") return;
+    if(!log[k]){ log[k] = de; return; }
+    var aqui = log[k];
+    Object.keys(de).forEach(function(id){
+      if(id === "_rpe") aqui._rpe = Object.assign({}, de._rpe || {}, aqui._rpe || {});
+      else if(!temOk(aqui[id]) && temOk(de[id])) aqui[id] = de[id];
+    });
+  });
+  if(d.run && typeof d.run === "object") Object.keys(d.run).forEach(function(k){
+    var r = d.run[k];
+    if(r && r.km > 0 && !(run[k] && run[k].km > 0)) run[k] = r;
+  });
+  /* os 1RMs da cópia só entram se este aparelho nunca gravou os dele */
+  if(d.cfg && typeof d.cfg === "object" && !S.load("luiz:cfg:v1", null)){
+    cfg = Object.assign(cfg, d.cfg);
+    S.store("luiz:cfg:v1", cfg);
+  }
+  if(!meta.copia && d.gerado){ meta.copia = d.gerado; salvaMeta(); }
+}
+
+/* aviso no topo da tela enquanto houver registro sem cópia */
+function avisoCopia(){
+  if(!copiaPendente()) return;
+  var txt = meta.copia
+    ? "A última cópia é de "+ddmm(new Date(meta.copia))+" e há registros novos depois dela."
+    : "Seus treinos ficam só neste aparelho e ainda não têm cópia. Salve uma em Arquivos.";
+  view.insertAdjacentHTML("afterbegin",
+    '<div class="cp" id="cpAviso"><p><b>Cópia de segurança.</b> '+txt+'</p>'+
+    '<div class="bk-g"><span class="bk pri" id="cpFaz" role="button">FAZER CÓPIA'+SW+'</span>'+
+    '<span class="bk" id="cpDepois" role="button">DEPOIS'+SW+'</span></div></div>');
+  var tira = function(){ var b = document.getElementById("cpAviso"); if(b) b.remove(); };
+  document.getElementById("cpFaz").onclick = function(){
+    toque(18);
+    exporta(function(ok){ if(ok) tira(); });
+  };
+  document.getElementById("cpDepois").onclick = function(){
+    toque(12);
+    meta.adiar = new Date(Date.now() + 3*864e5).toISOString(); salvaMeta();
+    tira();
+  };
+}
+
+/* pede ao navegador para não apagar os dados sozinho. No iPhone, quem
+   decide é o próprio sistema, e o app da Tela de Início costuma ganhar. */
+function pedePersistencia(){
+  try{
+    var st = navigator.storage;
+    if(!st || !st.persist) return;
+    (st.persisted ? st.persisted() : Promise.resolve(false))
+      .then(function(p){ return p || st.persist(); })
+      .then(function(p){ persistido = !!p; }, function(){});
+  }catch(e){}
+}
+
 /* ---------------------------------------------------------------- ajustes */
 var sheet = document.getElementById("sheet"), sheetIn = document.getElementById("sheetIn");
-document.getElementById("cfg").onclick = function(){
+
+function abreAjustes(msg, deuCerto){
+  var R = resumoDados();
   sheetIn.innerHTML =
-    '<h2>Ajustes</h2><p class="sub">1RM DOS PRINCIPAIS E A BARRA DA SUA ACADEMIA</p>'+
+    '<h2>Ajustes</h2><p class="sub">SEUS DADOS, O ÍCONE E AS CARGAS DE REFERÊNCIA</p>'+
+    '<p class="sec" style="margin-top:0">SEUS DADOS</p>'+
+    '<div class="dados">'+resumoTxt(R)+'<br>Última cópia: <b>'+(meta.copia ? quando(meta.copia) : "nunca")+'</b>.<br>'+
+    (noApp()
+      ? 'Aberto pelo app da Tela de Início, que guarda os dados separados do Safari.'
+      : 'Aberto no navegador. O Safari apaga dados de sites que ficam 7 dias sem ser abertos. O app da Tela de Início não sofre essa limpeza.')+
+    (persistido ? ' O navegador marcou estes dados como permanentes.' : '')+'</div>'+
+    '<div class="bk-g" style="margin-top:10px">'+
+      '<span class="bk pri" id="exp" role="button">FAZER CÓPIA'+SW+'</span>'+
+      '<span class="bk" id="imp" role="button">RESTAURAR CÓPIA'+SW+'</span></div>'+
+    (msg ? '<p class="'+(deuCerto ? "ok-msg" : "err-msg")+'">'+esc(msg)+'</p>' : '')+
+    '<p class="warn">A cópia é um arquivo .json. No iPhone, escolha Salvar em Arquivos. Restaurar junta a cópia com o que já está no app, sem apagar nada.</p>'+
+    '<input type="file" id="impf" accept="application/json,.json" style="display:none">'+
+    '<p class="sec">ÍCONE NOVO NA TELA DE INÍCIO</p>'+
+    '<ol class="rg">'+
+      '<li>Toque em <b>Fazer cópia</b> e salve o arquivo em Arquivos.</li>'+
+      '<li>Apague o atalho antigo da Tela de Início. Os dados dele vão junto, por isso a cópia vem antes.</li>'+
+      '<li>No Safari, abra o mesmo endereço, toque em compartilhar e em <b>Adicionar à Tela de Início</b>.</li>'+
+      '<li>Abra pelo ícone novo, toque em ☰ e em <b>Restaurar cópia</b>.</li>'+
+      '<li>Nos Ajustes do iPhone, em Tela e Brilho, deixe o Bloqueio Automático em 5 minutos, para a tela não apagar no descanso.</li></ol>'+
+    '<p class="sec">1RM E BARRA</p>'+
     [["rmSq","Agachamento 1RM"],["rmBp","Supino reto 1RM"],["rmDl","Levantamento terra 1RM"],
      ["rmOhp","Desenvolvimento 1RM"],["bar","Peso da barra"]].map(function(r){
       return '<div class="row"><label>'+r[1]+'</label><input type="number" inputmode="decimal" data-c="'+r[0]+'" value="'+cfg[r[0]]+'"></div>';
     }).join("")+
     '<p class="warn">Os 1RMs só entram quando um exercício principal ainda não tem registro. Com registro, a carga sugerida vem da progressão dupla sobre o seu último treino.'+pausaTxt()+'</p>'+
-    '<div class="bk-g">'+
-      '<button class="bk" id="exp">EXPORTAR CÓPIA</button>'+
-      '<button class="bk" id="imp">RESTAURAR CÓPIA</button></div>'+
-    '<div class="bk-g" style="margin-top:8px">'+
+    '<p class="sec">VIBRAÇÃO</p>'+
+    '<div class="bk-g" style="margin-top:0">'+
       '<span class="bk" id="btHap" role="button"><span id="btHapT">TESTAR VIBRAÇÃO</span>'+SW+'</span></div>'+
     '<p class="warn">Toque no botão acima. No iPhone o háptico vem do dedo acertando o controle escondido, nunca do código. Se não sentir nada, confira Ajustes, Sons e Resposta Tátil, Resposta Tátil do Sistema.<br>'+ambiente()+'</p>'+
-    '<input type="file" id="impf" accept="application/json" style="display:none">'+
-    '<div class="howto"><b>INSTALAR NO IPHONE</b><ol>'+
-      '<li>Abra este endereço no Safari, por https.</li>'+
-      '<li>Toque no botão de compartilhar.</li>'+
-      '<li>Escolha Adicionar à Tela de Início.</li>'+
-      '<li>Ajustes, Tela e Brilho, Bloqueio Automático: 5 minutos.</li></ol></div>'+
     '<button class="close" id="fechar">FECHAR</button>'+
-    '<button class="danger" id="zerar">apagar todo o registro de séries</button>';
+    '<button class="danger" id="zerar">apagar todo o registro de séries</button>'+
+    '<p class="ver">TREINO '+VERSAO+' · RETOMADA DE 16/11 A 03/01</p>';
   Array.prototype.forEach.call(sheetIn.querySelectorAll("input[data-c]"), function(inp){
-    inp.onchange = function(){ cfg[inp.dataset.c] = +inp.value || 0; S.store("luiz:cfg:v1", cfg); sujo(); render(); };
+    inp.onchange = function(){ cfg[inp.dataset.c] = +inp.value || 0; S.store("luiz:cfg:v1", cfg); mudou(); sujo(); render(); };
   });
   document.getElementById("fechar").onclick = function(){ sheet.classList.remove("on"); };
   document.getElementById("btHap").onclick = function(){
@@ -1745,42 +1913,43 @@ document.getElementById("cfg").onclick = function(){
     setTimeout(function(){ bt.textContent = "TESTAR VIBRAÇÃO"; }, 1200);
   };
   document.getElementById("exp").onclick = function(){
-    var pacote = {versao:2, gerado:new Date().toISOString(), cfg:cfg, log:log, run:run};
-    var a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([JSON.stringify(pacote)], {type:"application/json"}));
-    a.download = "treino-" + new Date().toISOString().slice(0,10) + ".json";
-    document.body.appendChild(a); a.click();
-    setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+    toque(18);
+    exporta(function(ok){ if(ok){ render(); abreAjustes("Cópia salva.", true); } });
   };
-  document.getElementById("imp").onclick = function(){ document.getElementById("impf").click(); };
+  document.getElementById("imp").onclick = function(){ toque(12); document.getElementById("impf").click(); };
   document.getElementById("impf").onchange = function(ev){
     var f = ev.target.files && ev.target.files[0]; if(!f) return;
     var fr = new FileReader();
     fr.onload = function(){
-      try{
-        var d = JSON.parse(fr.result);
-        if(d.cfg) cfg = Object.assign(cfg, d.cfg);
-        if(d.log) log = d.log;
-        if(d.run) run = d.run;
-        migraSlugs(); migraB2();
-        S.store("luiz:cfg:v1", cfg); S.store("luiz:gym:v1", log); S.store("luiz:run:v1", run);
-        sujo();
-        sheet.classList.remove("on"); render();
-      }catch(err){
-        ev.target.value = "";
-        document.getElementById("imp").textContent = "ARQUIVO INVÁLIDO";
+      var d = null;
+      try{ d = JSON.parse(fr.result); }catch(err){}
+      var valido = d && typeof d === "object" &&
+                   ((d.log && typeof d.log === "object") || (d.run && typeof d.run === "object"));
+      if(!valido){
+        abreAjustes("Arquivo inválido. Escolha um arquivo treino-....json salvo por este app.", false);
+        return;
       }
+      junta(d);
+      migraSlugs(); migraB2();
+      S.store("luiz:gym:v1", log); S.store("luiz:run:v1", run);
+      sujo();
+      var R2 = resumoDados();
+      render();
+      abreAjustes("Cópia"+(d.gerado ? " de "+ddmm(new Date(d.gerado)) : "")+" restaurada. Agora o app tem "+
+        plural(R2.treinos, "treino", "treinos")+" e "+plural(R2.corridas, "corrida", "corridas")+".", true);
     };
     fr.readAsText(f);
   };
   document.getElementById("zerar").onclick = function(){
+    if(!window.confirm("Apagar todos os treinos e corridas deste aparelho? Não tem como desfazer. Faça uma cópia antes.")) return;
     log = {}; run = {};
     S.store("luiz:gym:v1", log); S.store("luiz:run:v1", run);
-    sujo();
+    sujo(); mudou();
     sheet.classList.remove("on"); render();
   };
   sheet.classList.add("on");
-};
+}
+document.getElementById("cfg").onclick = function(){ abreAjustes(); };
 sheet.onclick = function(e){ if(e.target === sheet) sheet.classList.remove("on"); };
 
 document.getElementById("wm").onclick = function(){ if(week>1){ week--; render(); } };
@@ -1814,15 +1983,15 @@ function migraSlugs(){
 
 /* 2. As semanas 14 a 16 do plano antigo caem nas mesmas datas das semanas 1
       a 3 da retomada. O que foi registrado nelas muda de chave, com kg e
-      reps explícitos, para aparecer no dia certo do plano novo. Não mexe se
-      o dia novo já tiver registro. */
+      reps explícitos, para aparecer no dia certo do plano novo. Se o dia
+      novo já tiver registro do mesmo exercício, o do dia novo vence, como
+      na restauração de uma cópia antiga. */
 function migraB2(){
   var mg = false, mr = false;
   Object.keys(log).forEach(function(k){
     var m = RX_G1.exec(k); if(!m) return;
     var w = +m[1], d = m[2]; if(w < 14 || w > 16) return;
     var nk = "gym:b2:w"+(w-13)+":"+d;
-    if(log[nk]) return;
     var dados = log[k];
     DIAS[d].ex.forEach(function(e){
       var reg = dados[sid(e)]; if(!reg) return;
@@ -1833,14 +2002,19 @@ function migraB2(){
         if(r.rep == null && repNum(pr.reps) != null) r.rep = repNum(pr.reps);
       });
     });
-    log[nk] = dados; delete log[k]; mg = true;
+    if(!log[nk]) log[nk] = dados;
+    else Object.keys(dados).forEach(function(id){
+      if(id === "_rpe") log[nk]._rpe = Object.assign({}, dados._rpe || {}, log[nk]._rpe || {});
+      else if(!temOk(log[nk][id]) && temOk(dados[id])) log[nk][id] = dados[id];
+    });
+    delete log[k]; mg = true;
   });
   Object.keys(run).forEach(function(k){
     var m = RX_R1.exec(k); if(!m) return;
     var w = +m[1], d = m[2]; if(w < 14 || w > 16) return;
     var nk = "b2:w"+(w-13)+":"+d;
-    if(run[nk]) return;
-    run[nk] = run[k]; delete run[k]; mr = true;
+    if(!(run[nk] && run[nk].km > 0)) run[nk] = run[k];
+    delete run[k]; mr = true;
   });
   if(mg) S.store("luiz:gym:v1", log);
   if(mr) S.store("luiz:run:v1", run);
@@ -1851,8 +2025,10 @@ function migraB2(){
   cfg = Object.assign(cfg, S.load("luiz:cfg:v1", {}));
   log = S.load("luiz:gym:v1", {});
   run = S.load("luiz:run:v1", {});
+  meta = S.load("luiz:meta:v1", {}) || {};
   migraSlugs();
   migraB2();
+  pedePersistencia();
   var d = dias(B2.inicio, new Date());
   if(d < 0){ week = 1; day = "seg"; }
   else if(d >= 7*B2.semanas){ week = B2.semanas; day = "prog"; }
